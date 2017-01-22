@@ -6,6 +6,7 @@ package com.lwansbrough.RCTCamera;
 
 import android.content.Context;
 import android.graphics.SurfaceTexture;
+import android.graphics.Rect;
 import android.hardware.Camera;
 import android.view.MotionEvent;
 import android.view.TextureView;
@@ -19,6 +20,7 @@ import com.facebook.react.modules.core.DeviceEventManagerModule;
 import java.util.List;
 import java.util.EnumMap;
 import java.util.EnumSet;
+import java.util.ArrayList;
 
 import com.google.zxing.BarcodeFormat;
 import com.google.zxing.BinaryBitmap;
@@ -36,6 +38,7 @@ class RCTCameraViewFinder extends TextureView implements TextureView.SurfaceText
     private boolean _isStopping;
     private Camera _camera;
     private float mFingerSpacing;
+    private static  final int FOCUS_AREA_SIZE= 100;
 
     // concurrency lock for barcode scanner to avoid flooding the runtime
     public static volatile boolean barcodeScannerTaskLock = false;
@@ -369,16 +372,42 @@ class RCTCameraViewFinder extends TextureView implements TextureView.SurfaceText
         float x = event.getX(pointerIndex);
         float y = event.getY(pointerIndex);
 
+        Rect focusRect = calculateFocusArea(event.getX(), event.getY());
+
         List<String> supportedFocusModes = params.getSupportedFocusModes();
         if (supportedFocusModes != null && supportedFocusModes.contains(Camera.Parameters.FOCUS_MODE_AUTO)) {
-            _camera.autoFocus(new Camera.AutoFocusCallback() {
+       /*     _camera.autoFocus(new Camera.AutoFocusCallback() {
                 @Override
                 public void onAutoFocus(boolean b, Camera camera) {
                     // currently set to auto-focus on single touch
                 }
             });
+          */
+            Camera.Parameters parameters = _camera.getParameters();
+            if (parameters.getMaxNumMeteringAreas() > 0){
+
+                parameters.setFocusMode(Camera.Parameters.FOCUS_MODE_AUTO);
+                List<Camera.Area> meteringAreas = new ArrayList<Camera.Area>();
+                meteringAreas.add(new Camera.Area(focusRect, 800));
+                parameters.setFocusAreas(meteringAreas);
+
+                _camera.setParameters(parameters);
+                _camera.autoFocus(new Camera.AutoFocusCallback() {
+                    @Override
+                    public void onAutoFocus(boolean b, Camera camera) {
+                        // currently set to auto-focus on single touch
+                    }
+                });
+            }else {
+                _camera.autoFocus(new Camera.AutoFocusCallback() {
+                    @Override
+                    public void onAutoFocus(boolean b, Camera camera) {
+                        // currently set to auto-focus on single touch
+                    }
+                });            }
         }
     }
+
 
     /** Determine the space between the first two fingers */
     private float getFingerSpacing(MotionEvent event) {
@@ -386,4 +415,27 @@ class RCTCameraViewFinder extends TextureView implements TextureView.SurfaceText
         float y = event.getY(0) - event.getY(1);
         return (float) Math.sqrt(x * x + y * y);
     }
+
+    private Rect calculateFocusArea(float x, float y) {
+        int left = clamp(Float.valueOf((x / RCTCamera.getInstance().getPreviewWidth(this._cameraType)) * 2000 - 1000).intValue(), FOCUS_AREA_SIZE);
+        int top = clamp(Float.valueOf((y / RCTCamera.getInstance().getPreviewHeight(this._cameraType)) * 2000 - 1000).intValue(), FOCUS_AREA_SIZE);
+
+        return new Rect(left, top, left + FOCUS_AREA_SIZE, top + FOCUS_AREA_SIZE);
+    }
+
+    private int clamp(int touchCoordinateInCameraReper, int focusAreaSize) {
+        int result;
+        if (Math.abs(touchCoordinateInCameraReper)+focusAreaSize/2>1000){
+            if (touchCoordinateInCameraReper>0){
+                result = 1000 - focusAreaSize/2;
+            } else {
+                result = -1000 + focusAreaSize/2;
+            }
+        } else{
+            result = touchCoordinateInCameraReper - focusAreaSize/2;
+        }
+        return result;
+    }
+
+
 }
